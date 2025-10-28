@@ -1,12 +1,12 @@
 # ansible-vault-mode
 
-Minor mode for in place manipulation of [ansible-vault][ansible-vault] encrypted files.
+Minor mode for in-place manipulations with files encrypted by [ansible-vault][ansible-vault].
 
 ## Installation
 
 ### Recommended way
 
-Put this to `~/.emacs`:
+Put this into `~/.emacs`:
 
 ```lisp
 (use-package ansible-vault
@@ -49,8 +49,7 @@ Put this into `~/.emacs`:
 
 ### Good old very manual way
 
-Or manually downloading `ansible-vault-mode` and adding the following
-lines to your conf files:
+Download this repo, store somewhere on disk, and put this into `~/.emacs`:
 
 ```lisp
 (add-to-list 'load-path "/path/to/ansible-vault")
@@ -60,18 +59,18 @@ lines to your conf files:
 
 ## Usage
 
-The only thing I recommend is to update `magic-mode-alist` in order to enable the mode automatically
-when you open an encrypted file. Anyway, it's already written in the examples above.
+The only thing I recommend is to update `magic-mode-alist` in order to activate the mode
+automatically when you open an encrypted file. Anyway, it's already written in the examples above.
 
 ```
 (add-to-list 'magic-mode-alist (cons #'ansible-vault--is-encrypted-vault-file #'ansible-vault-mode))
 ```
 
 When enabled, the mode tries to find `ansible.cfg` file. First it checks `ANSIBLE_CONFIG`
-environment variable. If not set, it performs an upward search starting from the file location. Then
-it tries `~/.ansible.cfg` and eventually `/etc/ansible/ansible.cfg`.
+environment variable. If not set, it performs an upward search starting from your encrypted file
+location. Then it tries `~/.ansible.cfg` and eventually `/etc/ansible/ansible.cfg`.
 
-So I recommend storing `ansible.cfg` in the root of the repo with the infrastructure code.
+So I recommend storing `ansible.cfg` in the root of the repo with your ansible code.
 
 The mode decrypts and encrypts files automatically: decrypts when you enable the mode, encrypts back
 when you save the modifed buffer.
@@ -79,7 +78,7 @@ when you save the modifed buffer.
 After initialization it tries to activate an appropriate major-mode for by calling `normal-mode` on
 already decrypted buffer.
 
-If case of errors look into ```*ansible-vault-error*``` buffer.
+In case of errors look into ```*ansible-vault-error*``` buffer.
 
 
 
@@ -135,9 +134,9 @@ Feature requests are welcome too, but I strongly recommend to consider filing a 
 Copyright (C) 2016 Zachary Elliott &lt;contact@zell.io&gt;<br/>
 Copyright (C) 2025 Dmitrii Kashin  &lt;freehck@yandex.ru&gt;
 
-This program is licensed under (GPLv3)[LICENSE].
+This program is licensed under (GPLv3)[license].
 
 [ansible-vault]: http://docs.ansible.com/ansible/playbooks_vault.html
 [yaml]: http://yaml.org/
 [issues]: https://github.com/freehck/ansible-vault-mode
-
+[license]: https://raw.githubusercontent.com/freehck/ansible-vault-mode/refs/heads/master/LICENSE
