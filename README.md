@@ -1,6 +1,6 @@
 # ansible-vault-mode
 
-Minor mode for in place manipulation of [ansible-vault][ansible-vault].
+Minor mode for in place manipulation of [ansible-vault][ansible-vault] encrypted files.
 
 ## Installation
 
@@ -132,7 +132,12 @@ Feature requests are welcome too, but I strongly recommend to consider filing a 
 
 ## Copyright
 
-Copyright (C) 2016 Zachary Elliott &lt;contact@zell.io&gt;
+Copyright (C) 2016 Zachary Elliott &lt;contact@zell.io&gt;<br/>
 Copyright (C) 2025 Dmitrii Kashin  &lt;freehck@yandex.ru&gt;
 
 This program is licensed under (GPLv3)[LICENSE].
+
+[ansible-vault]: http://docs.ansible.com/ansible/playbooks_vault.html
+[yaml]: http://yaml.org/
+[issues]: https://github.com/freehck/ansible-vault-mode
+
