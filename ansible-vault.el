@@ -1,13 +1,15 @@
-;;; ansible-vault.el --- Minor mode for editing ansible vault files
+;;; ansible-vault.el --- Minor mode for editing ansible vault files -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2016-2021 Zachary Elliott
+;; Copyright (C) 2016-2025 Zachary Elliott
+;; Copyright (C) 2025-20.. Dmitrii Kashin
 ;;
 ;; Authors: Zachary Elliott <contact@zell.io>, Dmitrii Kashin <freehck@yandex.ru>
 ;; Maintainer: Dmitrii Kashin <freehck@yandex.ru>
-;; URL: http://github.com/freehck/ansible-vault-mode;; Created: 2016-09-25
-;; Version: 0.5.3
+;; URL: http://github.com/freehck/ansible-vault-mode
+;; Created: 2016-09-25
+;; Version: 0.6.0
 ;; Keywords: ansible, ansible-vault, tools
-;; Package-Requires: ((emacs "25.1"))
+;; Package-Requires: ((emacs "26.1"))
 
 ;; This file is not part of GNU Emacs.
 
@@ -33,26 +35,30 @@
 
 ;;; Code:
 
-(eval-when-compile (require 'subr-x))
+(require 'cl-lib)
+;;;###autoload
+(require 'subr-x nil t)
+;;;###autoload
+(require 'map nil t)
 
-(defconst ansible-vault-version "0.5.3"
+;; ──────────────────────────────────────────────────────────────
+;; Configuration
+;; ──────────────────────────────────────────────────────────────
+
+(defconst ansible-vault-version "0.6.0"
   "`ansible-vault' version.")
 
 (defgroup ansible-vault nil
   "`ansible-vault' application group."
   :group 'applications
   :link '(url-link :tag "Website for ansible-vault-mode"
-                   "https://github.com/zellio/ansible-vault-mode")
+                   "https://github.com/freehck/ansible-vault-mode")
   :prefix "ansible-vault-")
 
 (defcustom ansible-vault-command "ansible-vault"
   "`ansible-vault' shell command."
   :type 'string
   :group 'ansible-vault)
-
-(define-obsolete-variable-alias
-  'ansible-vault-pass-file 'ansible-vault-password-file "0.4.0"
-  "Migrated to unify naming conventions.")
 
 (defcustom ansible-vault-password-file (expand-file-name ".vault-pass" "~")
   "File containing `ansible-vault' password.
@@ -63,6 +69,8 @@ you for a password."
   :type 'string
   :group 'ansible-vault)
 
+;; Saved for now for backwards compatibility
+;; I don't know if vault-id is a useful feature of ansible-vault and have never seen someone used it
 (defcustom ansible-vault-vault-id-alist '()
   "Associative list of strings containing (vault-id . password-file) pairs.
 
@@ -76,12 +84,12 @@ the 1.2 vault-id syntax."
   :type 'string
   :group 'ansible-vault)
 
-;; Global vars
 (defvar ansible-vault--password-file-list '()
   "Global variable for `ansible-vault-mode'.
 
 List of generated password files that must be deleted on close.")
 
+;; Saved because it's necessary for vault-id functionality (see #'ansible-vault--command-flags)
 (defvar ansible-vault--sub-command-type-alist
   '(("create" . :encrypt)
     ("decrypt" . :decrypt)
@@ -102,43 +110,74 @@ generation.")
       line-end)
   "Regex for `ansible-vault' header for identifying of encrypted buffers.")
 
-;; Buffer local vars
-(defvar ansible-vault--header-format-id '()
-  "Buffer local variable for `ansible-vault-mode'.")
+;; ──────────────────────────────────────────────────────────────
+;; Internal state
+;; ──────────────────────────────────────────────────────────────
 
-(defvar ansible-vault--header-version '()
-  "Buffer local variable for `ansible-vault-mode'.")
+;; Important: I made all the buffer-local variables to be permanent
+;; as we don't wanna miss them when major mode changed
 
-(defvar ansible-vault--header-cipher-algorithm '()
+;; these are variables to store information about vault header parsing
+(defvar ansible-vault--header-version nil
   "Buffer local variable for `ansible-vault-mode'.")
+(make-variable-buffer-local 'ansible-vault--header-version)
+(put 'ansible-vault--header-version 'permanent-local t)
 
-(defvar ansible-vault--header-vault-id '()
+(defvar ansible-vault--header-cipher-algorithm nil
   "Buffer local variable for `ansible-vault-mode'.")
+(make-variable-buffer-local 'ansible-vault--header-cipher-algorithm)
+(put 'ansible-vault--header-cipher-algorithm 'permanent-local t)
+
+(defvar ansible-vault--header-vault-id nil
+  "Buffer local variable for `ansible-vault-mode'.")
+(make-variable-buffer-local 'ansible-vault--header-vault-id)
+(put 'ansible-vault--header-vault-id 'permanent-local t)
+;; end of vault header parsing
 
 (defvar ansible-vault--point 0
   "Buffer local variable for `ansible-vault-mode'.
 
 Point for location continuity during encrypt and save.")
+(make-variable-buffer-local 'ansible-vault--point)
+(put 'ansible-vault--point 'permanent-local t)
 
-(defvar ansible-vault--password-file '()
+(defvar ansible-vault--password-file nil
   "Internal variable for `ansible-vault-mode'.
 
 Path of the password file for current buffer.")
+(make-variable-buffer-local 'ansible-vault--password-file)
+(put 'ansible-vault--password-file 'permanent-local t)
 
-(defvar ansible-vault--vault-id '()
+(defvar ansible-vault--vault-id nil
   "Internal variable for `ansible-vault-mode'.
 
 Ansible vault-id, used for v1.2 encryption / decryption.")
+(make-variable-buffer-local 'ansible-vault--vault-id)
+(put 'ansible-vault--vault-id 'permanent-local t)
 
 (defvar ansible-vault--auto-encryption-enabled '()
   "Internal variable for `ansible-vault-mode'.
 
 Ansible vault auto-encryption flag.  Tells the before / after
 save hooks to treat ansible-vault file as encrypted on disk.")
+(make-variable-buffer-local 'ansible-vault--auto-encryption-enabled)
+(put 'ansible-vault--auto-encryption-enabled 'permanent-local t)
+
+;; ──────────────────────────────────────────────────────────────
+;; Core: detection, config, password
+;; ──────────────────────────────────────────────────────────────
+
+;; vault header parsing
 
 ;;;###autoload
 (defun ansible-vault--fingerprint-buffer ()
-  "Parse and store the ansible-vault header values."
+  "Parse and store the ansible-vault header values.
+
+The header \"$ANSIBLE_VAULT;1.1;AES256\" will be parsed into:
+  version: \"1.1\"
+  cipher-algorithm: \"AES256\"
+  vault-id: nil
+"
   (save-excursion
     (goto-char (point-min))
     (let* ((first-line (string-trim-right (or (thing-at-point 'line t) "")))
@@ -149,7 +188,6 @@ save hooks to treat ansible-vault file as encrypted on disk.")
            (vault-id (cadddr header-tokens)))
       (when (string= "$ANSIBLE_VAULT" format-id)
         (setq-local
-         ansible-vault--header-format-id format-id
          ansible-vault--header-version version
          ansible-vault--header-cipher-algorithm cipher-algorithm
          ansible-vault--header-vault-id vault-id)))))
@@ -158,8 +196,8 @@ save hooks to treat ansible-vault file as encrypted on disk.")
 (defun ansible-vault--is-encrypted-vault-file ()
   "Identifies if the current buffer is an encrypted `ansible-vault' file.
 
-This function just looks to see if the first line of the buffer
-is matched by `ansible-vault--file-header-regex'."
+This function just checks if the first line of the buffer matches
+`ansible-vault--file-header-regex'."
   (save-excursion
     (goto-char (point-min))
     (let* ((file-header (or (thing-at-point 'line t) ""))
@@ -167,12 +205,10 @@ is matched by `ansible-vault--file-header-regex'."
             (string-match ansible-vault--file-header-regex file-header)))
       (and first-match (zerop first-match)))))
 
-(define-obsolete-variable-alias
-  'ansible-vault--is-vault-file 'ansible-vault--is-encrypted-vault-file "0.4.2"
-  "Renamed for semantic correctness.")
+;; shell command generation
 
 (defun ansible-vault--sub-command-type (sub-command)
-  "Identify type of ansible-vault subcommand for flag generation.
+  "Identify type of ansible-vault subcommand for cli tool flags generation.
 
 SUB-COMMAND ansible-vault cli sub-command to type."
   (cdr (assoc sub-command ansible-vault--sub-command-type-alist)))
@@ -209,6 +245,8 @@ SUB-COMMAND is the \"ansible-vault\" subcommand to use."
     (format "%s %s %s" ansible-vault-command sub-command
             (mapconcat 'identity command-flags " "))))
 
+;; setting local variables and creating necessary files
+
 (defun ansible-vault--process-config-files ()
   "Locate vault_password_file definitions in ansible config files.
 
@@ -219,7 +257,8 @@ commandline flag for it."
   (let ((config-file
          (seq-find (lambda (file) (and file (file-readable-p file) file))
                    (list (getenv "ANSIBLE_CONFIG")
-                         (expand-file-name "ansible.cfg" (locate-dominating-file (buffer-file-name) "ansible.cfg"))
+                         (expand-file-name "ansible.cfg"
+                                           (locate-dominating-file buffer-file-name "ansible.cfg"))
                          "~/.ansible.cfg"
                          "/etc/ansible/ansible.cfg"))))
     (unless (= (length config-file) 0)
@@ -264,7 +303,7 @@ a password from the user as well.
 
 VAULT-ID ansible-vault vault id.
 PASSWORD-FILE path to the stored secret for provided VAULT-ID."
-  (interactive "sVault Id: ")
+  (interactive "Vault Id: ")
   (let* ((vault-id-pair
           (or (assoc vault-id ansible-vault-vault-id-alist)
               (let* ((password-file (or password-file
@@ -276,49 +315,7 @@ PASSWORD-FILE path to the stored secret for provided VAULT-ID."
      ansible-vault--password-file password-file)
     vault-id-pair))
 
-(defun ansible-vault--flush-password-file ()
-  "Delete password file and associated buffer local variables."
-  (when ansible-vault--password-file
-    (when (member ansible-vault--password-file ansible-vault--password-file-list)
-      (setq ansible-vault--password-file-list
-            (remove ansible-vault--password-file ansible-vault--password-file-list))
-      (delete-file ansible-vault--password-file))
-    (setq-local ansible-vault--password-file nil)))
-
-(define-obsolete-variable-alias
-  'ansible-vault--flush-password 'ansible-vault--flush-password-file "0.4.2"
-  "Renamed for semantic correctness.")
-
-(defun ansible-vault--flush-vault-id ()
-  "Delete vault-id pair and associated buffer local variables."
-  (when ansible-vault--vault-id
-    (when (map-contains-key ansible-vault-vault-id-alist ansible-vault--vault-id)
-      (setq ansible-vault-vault-id-alist
-            (map-filter (lambda (key _)
-                          (not (string= key ansible-vault--vault-id)))
-                        ansible-vault-vault-id-alist)))
-    (setq-local ansible-vault--vault-id nil)
-    (ansible-vault--flush-password-file)))
-
-(defun ansible-vault--error-buffer ()
-  "Generate or return `ansible-vaul't error report buffer."
-  (or (get-buffer "*ansible-vault-error*")
-      (let ((buffer (get-buffer-create "*ansible-vault-error*")))
-        (save-current-buffer
-          (set-buffer buffer)
-          (setq-local buffer-read-only t))
-        buffer)))
-
-(defmacro ansible-vault--env-mask (env &optional val &rest body)
-  "Masks system ENV as VAL for BODY execution."
-  (let ((env-val (make-symbol "env-val")))
-    `(let ((,env-val (getenv ,env)))
-       (unwind-protect
-           (progn
-             (setenv ,env ,val)
-             ,@body)
-         (setenv ,env ,env-val)))))
-
+;; side-effect: it sets ansible-vault--password-file
 (defun ansible-vault--guess-password-file ()
   "Attempts to determine the correct ansible-vault password file.
 
@@ -350,12 +347,58 @@ its password file."
       ))
   ansible-vault--password-file)
 
+;; unsetting variables and deleting unnecessary files
+
+(defun ansible-vault--flush-password-file ()
+  "Delete password file and associated buffer local variables."
+  (when ansible-vault--password-file
+    (when (member ansible-vault--password-file ansible-vault--password-file-list)
+      (setq ansible-vault--password-file-list
+            (remove ansible-vault--password-file ansible-vault--password-file-list))
+      (delete-file ansible-vault--password-file))
+    (setq-local ansible-vault--password-file nil)))
+
+(defun ansible-vault--flush-vault-id ()
+  "Delete vault-id pair and associated buffer local variables."
+  (when ansible-vault--vault-id
+    (when (map-contains-key ansible-vault-vault-id-alist ansible-vault--vault-id)
+      (setq ansible-vault-vault-id-alist
+            (map-filter (lambda (key _)
+                          (not (string= key ansible-vault--vault-id)))
+                        ansible-vault-vault-id-alist)))
+    (setq-local ansible-vault--vault-id nil)
+    (ansible-vault--flush-password-file)))
+
 (defun ansible-vault--cleanup-password-error ()
   "Flush both vault and password values."
   (when ansible-vault--vault-id
     (ansible-vault--flush-vault-id))
   (when ansible-vault--password-file
     (ansible-vault--flush-password-file)))
+
+(defun ansible-vault--clear-local-variables ()
+  "Unset all buffer local variables."
+  (dolist (var '(ansible-vault--header-version
+                 ansible-vault--header-cipher-algorithm
+                 ansible-vault--header-vault-id
+                 ansible-vault--point
+                 ansible-vault--password-file
+                 ansible-vault--vault-id
+                 ansible-vault--auto-encryption-enabled))
+    (makunbound var)))
+
+;; error handling
+
+(defun ansible-vault--error-buffer ()
+  "Generate or return `ansible-vaul't error report buffer."
+  (or (get-buffer "*ansible-vault-error*")
+      (let ((buffer (get-buffer-create "*ansible-vault-error*")))
+        (save-current-buffer
+          (set-buffer buffer)
+          (setq-local buffer-read-only t))
+        buffer)))
+
+;; run ansible-vault cli tool
 
 (defun ansible-vault--execute-on-region (command &optional start end buffer error-buffer)
   "In place execution of a given COMMAND using `ansible-vault'.
@@ -371,21 +414,23 @@ ERROR-BUFFER defaults to `ansible-vault--error-buffer'."
          ;; Set default arguments
          (start (or start (point-min)))
          (end (or end (point-max)))
-         (buffer (or buffer (current-buffer)))
          (error-buffer (or error-buffer (ansible-vault--error-buffer)))
 
          ;; Local variables
          (ansible-vault-stdout (get-buffer-create "*ansible-vault-stdout*"))
-         (ansible-vault-stderr (get-buffer-create "*ansible-vault-stderr*"))
-         (password-file (ansible-vault--guess-password-file)))
+         (ansible-vault-stderr (get-buffer-create "*ansible-vault-stderr*")))
+    (ansible-vault--guess-password-file)
     (unwind-protect
         (progn
           (let ((shell-command (ansible-vault--shell-command command)))
-            (ansible-vault--env-mask
-             "ANSIBLE_VAULT_PASSWORD_FILE" nil
-             (shell-command-on-region start end shell-command
-                                      ansible-vault-stdout nil
-                                      ansible-vault-stderr nil))
+            (let ((env-ansible-vault-password-file (getenv "ANSIBLE_VAULT_PASSWORD_FILE")))
+              (unwind-protect
+                  (progn
+                    (setenv "ANSIBLE_VAULT_PASSWORD_FILE" nil)
+                    (shell-command-on-region start end shell-command
+                                             ansible-vault-stdout nil
+                                             ansible-vault-stderr nil))
+                (setenv "ANSIBLE_VAULT_PASSWORD_FILE" env-ansible-vault-password-file)))
             (if (zerop (buffer-size ansible-vault-stderr))
                 (progn
                   (delete-region start end)
@@ -402,6 +447,7 @@ ERROR-BUFFER defaults to `ansible-vault--error-buffer'."
       (kill-buffer ansible-vault-stderr))
     ))
 
+;; interactive actions
 (defun ansible-vault-decrypt-current-buffer ()
   "In place decryption of `current-buffer' using `ansible-vault'."
   (interactive)
@@ -464,6 +510,8 @@ ERROR-BUFFER defaults to `ansible-vault--error-buffer'."
   (interactive "r")
   (ansible-vault--execute-on-region "encrypt_string" start end))
 
+;; key mapping
+
 (defun ansible-vault--chord (chord)
   "Key sequence generator for ansible-vault minor mode.
 
@@ -480,6 +528,8 @@ CHORD is the trailing key sequence to append ot the mode prefix."
     (define-key map (ansible-vault--chord "i") 'ansible-vault--request-vault-id)
     map)
   "Keymap for `ansible-vault' minor mode.")
+
+;; hooks
 
 (defun ansible-vault--before-save-hook ()
   "`before-save-hook' for files managed by `ansible-vault-mode'.
@@ -522,21 +572,13 @@ Ensures deletion of ansible-vault generated password files."
       (delete-file file))
     ))
 
-(defun ansible-vault--clear-local-variables ()
-  "Unset all buffer local variables."
-  (dolist (var '(ansible-vault--header-format-id
-                 ansible-vault--header-version
-                 ansible-vault--header-cipher-algorithm
-                 ansible-vault--header-vault-id
-                 ansible-vault--point
-                 ansible-vault--password-file
-                 ansible-vault--vault-id
-                 ansible-vault--auto-encryption-enabled))
-    (makunbound var)))
+;; ──────────────────────────────────────────────────────────────
+;; Mode
+;; ──────────────────────────────────────────────────────────────
 
 ;;;###autoload
 (define-minor-mode ansible-vault-mode
-  "Minor mode for manipulating ansible-vault files."
+  "Minor mode for manipulating ansible-vault files"
   :lighter " ansible-vault"
   :keymap ansible-vault-mode-map
   :group 'ansible-vault
@@ -563,7 +605,16 @@ Ensures deletion of ansible-vault generated password files."
         ;; Add mode hooks
         (add-hook 'before-save-hook 'ansible-vault--before-save-hook t t)
         (add-hook 'after-save-hook 'ansible-vault--after-save-hook t t)
-        (add-hook 'kill-buffer-hook 'ansible-vault--kill-buffer-hook t t))
+        (add-hook 'kill-buffer-hook 'ansible-vault--kill-buffer-hook t t)
+
+        ;; make hooks resistant to kill-all-local-variables
+        (put 'before-save-hook 'permanent-local t)
+        (put 'after-save-hook 'permanent-local t)
+        (put 'kill-buffer-hook 'permanent-local t)
+
+        ;; change major mode
+        (normal-mode)
+        )
 
     ;; Disable the mode
     (remove-hook 'after-save-hook 'ansible-vault--after-save-hook t)
@@ -587,7 +638,26 @@ Ensures deletion of ansible-vault generated password files."
 
     (ansible-vault--clear-local-variables)))
 
-(add-hook 'kill-emacs-hook 'ansible-vault--kill-emacs-hook t)
+
+;; ──────────────────────────────────────────────────────────────
+;; Obsolete aliases (explicit!)
+;; ──────────────────────────────────────────────────────────────
+
+(define-obsolete-variable-alias
+  'ansible-vault-pass-file 'ansible-vault-password-file "0.4.0"
+  "Migrated to unify naming conventions.")
+
+(define-obsolete-variable-alias
+  'ansible-vault--is-vault-file 'ansible-vault--is-encrypted-vault-file "0.4.2"
+  "Renamed for semantic correctness.")
+
+(define-obsolete-variable-alias
+  'ansible-vault--flush-password 'ansible-vault--flush-password-file "0.4.2"
+  "Renamed for semantic correctness.")
+
+;; ──────────────────────────────────────────────────────────────
+;; Footer
+;; ──────────────────────────────────────────────────────────────
 
 (provide 'ansible-vault)
 
