@@ -45,7 +45,7 @@
 ;; Configuration
 ;; ──────────────────────────────────────────────────────────────
 
-(defconst ansible-vault-version "0.6.0"
+(defconst ansible-vault-version "0.6.1"
   "`ansible-vault' version.")
 
 (defgroup ansible-vault nil

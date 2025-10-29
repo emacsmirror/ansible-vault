@@ -105,12 +105,17 @@ between sessions by configuring the `ansible-vault-vault-id-alist` value with `(
 This allows properly tagged v1.2 vault files to automatically find and use their associated password
 files.
 
-Nota Bene:
+Nota Bene:<br/>
 The current maintainer didn't test this functionality, so you're on your own with it.
 
 
 
 ## Release Notes
+
+### version 0.6.1
+
+ - Add compatibility fixes for Emacs 26.1 (issue #24)
+ - Add magic-mode-alist integration (issue #26)
 
 ### version 0.6.0
 
