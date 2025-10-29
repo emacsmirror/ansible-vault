@@ -9,9 +9,7 @@ Minor mode for in-place manipulations with files encrypted by [ansible-vault][an
 Put this into `~/.emacs`:
 
 ```lisp
-(use-package ansible-vault
-  :init
-  (add-to-list 'magic-mode-alist (cons #'ansible-vault--is-encrypted-vault-file #'ansible-vault-mode)))
+(use-package ansible-vault :ensure t)
 ```
 
 ### Manual way
@@ -25,26 +23,39 @@ M-x package-install RET ansible-vault RET
 Put this into `~/.emacs`:
 
 ```lisp
-(use-package git :pin melpa-stable)
+(use-package git :ensure t)
 
-(setq my/ansible-vault-mode-dir    "~/repos/github.com/freehck/ansible-vault-mode")
-(setq my/ansible-vault-mode-repo   "https://github.com/freehck/ansible-vault-mode.git")
-(setq my/ansible-vault-mode-branch "master")
+(defun my/setup-git-package (&rest args)
+  (require 'git)
+  (require 'f)
+  (let ((repo-url (plist-get args :repo-url))
+        (repo-dir (plist-get args :repo-dir))
+        (repo-branch (plist-get args :repo-branch))
+        (feature (plist-get args :feature)))
+    (unless (and repo-dir repo-url)
+      (error "Keys :repo-dir and :repo-url are required"))
+    (let* ((repo-branch (or repo-branch "master"))
+           (repo-dir (f-full repo-dir)))
+      (unless (file-directory-p repo-dir)
+        (message "Create directory: %s" repo-dir)
+        (make-directory repo-dir t))
+      (let ((git-repo repo-dir))
+        (unless (git-repo? repo-dir)
+          (message "Clone repo %s to %s" repo-url repo-dir)
+          (git-clone repo-url repo-dir))
+        (unless (git-on-branch? repo-branch)
+          (message "Checkout to branch: %s" repo-branch)
+          (git-checkout repo-branch)))
+      (let* ((feature-filename (concat feature ".el"))
+             (feature-file-fullpath (expand-file-name feature-filename repo-dir)))
+        (message "Load feature from file: %s" feature-file-fullpath)
+        (load feature-file-fullpath nil t)))))
 
-(use-package ansible-vault
-  :pin manual
-  :load-path my/ansible-vault-mode-dir
-  :init
-  (unless (file-accessible-directory-p my/ansible-vault-mode-dir)
-    (make-directory my/ansible-vault-mode-dir))
-  (let ((git-repo (f-full my/ansible-vault-mode-dir)))
-    (unless (git-repo? my/ansible-vault-mode-dir)
-      (git-clone my/ansible-vault-mode-repo git-repo))
-    (unless (git-on-branch? my/ansible-vault-mode-branch)
-      (git-checkout my/ansible-vault-mode-branch)))
-  (add-to-list 'magic-mode-alist (cons #'ansible-vault--is-encrypted-vault-file #'ansible-vault-mode))
-  (load (expand-file-name "ansible-vault.el" my/ansible-vault-mode-dir) nil t)
-  )
+(my/setup-git-package :feature "ansible-vault"
+                      :repo-dir "~/repos/github.com/freehck/ansible-vault-mode"
+                      :repo-url "git@github.com:freehck/ansible-vault-mode.git"
+                      :repo-branch "develop")
+
 ```
 
 ### Good old very manual way
@@ -57,20 +68,17 @@ Download this repo, store somewhere on disk, and put this into `~/.emacs`:
 ```
 
 
+
 ## Usage
-
-The only thing I recommend is to update `magic-mode-alist` in order to activate the mode
-automatically when you open an encrypted file. Anyway, it's already written in the examples above.
-
-```
-(add-to-list 'magic-mode-alist (cons #'ansible-vault--is-encrypted-vault-file #'ansible-vault-mode))
-```
 
 When enabled, the mode tries to find `ansible.cfg` file. First it checks `ANSIBLE_CONFIG`
 environment variable. If not set, it performs an upward search starting from your encrypted file
 location. Then it tries `~/.ansible.cfg` and eventually `/etc/ansible/ansible.cfg`.
 
 So I recommend storing `ansible.cfg` in the root of the repo with your ansible code.
+
+When the mode found `ansible.cfg` file, it takes `vault_password_file` directive from it to
+detirmine where to take the vault password from. Then it uses it to decrypt/encrypt the file.
 
 The mode decrypts and encrypts files automatically: decrypts when you enable the mode, encrypts back
 when you save the modifed buffer.
@@ -79,8 +87,6 @@ After initialization it tries to activate an appropriate major-mode for by calli
 already decrypted buffer.
 
 In case of errors look into ```*ansible-vault-error*``` buffer.
-
-
 
 ### Vault Id configuration
 
@@ -102,7 +108,11 @@ files.
 Nota Bene:
 The current maintainer didn't test this functionality, so you're on your own with it.
 
-### Notes on version 0.6.0
+
+
+## Release Notes
+
+### version 0.6.0
 
  - Now `ansible-vault-mode` allows to change major mode, and even do it by default right after
    initialization, so you can work with encrypted files as if they were the ordinary ones. They will
@@ -110,7 +120,7 @@ The current maintainer didn't test this functionality, so you're on your own wit
    
  
 
-### Notes on version 0.5.0 and beyond
+### version 0.5.0 and beyond
 
  - `ansible-vault-mode` is now more aggressive in detecting valid password files. If it fails to
    locate a valid password file it will prompt the user for input.
@@ -123,21 +133,29 @@ The current maintainer didn't test this functionality, so you're on your own wit
     - `C-c a p` Updates the password of the current buffer
     - `C-c a i` Updates the vault-id of the current buffer
 
+
+
 ## Contributing
 
 Bug reports and pull requests are welcome on [GitHub issues][issues].
 
 Feature requests are welcome too, but I strongly recommend to consider filing a PR additionally.
 
+
+
 ## License
 
 This program is licensed under [GPLv3][license].
+
+
 
 ## Authors and Contributors
 
 Zachary Elliott &lt;contact@zell.io&gt;<br/>
 Dmitrii Kashin  &lt;freehck@yandex.ru&gt;<br/>
 Peter Bray      [@illumino](https://github.com/illumino)<br/>
+
+
 
 [ansible-vault]: http://docs.ansible.com/ansible/playbooks_vault.html
 [yaml]: http://yaml.org/
