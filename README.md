@@ -1,102 +1,92 @@
 # ansible-vault-mode
 
-Minor mode for in place manipulation of [ansible-vault][ansible-vault].
+Minor mode for in-place manipulations with files encrypted by [ansible-vault][ansible-vault].
 
 ## Installation
 
-You can install via ELPA:
+### Recommended way
+
+Put this into `~/.emacs`:
+
+```lisp
+(use-package ansible-vault
+  :init
+  (add-to-list 'magic-mode-alist (cons #'ansible-vault--is-encrypted-vault-file #'ansible-vault-mode)))
+```
+
+### Manual way
 
 ```
 M-x package-install RET ansible-vault RET
 ```
 
-Or manually downloading `ansible-vault-mode` and adding the following lines to
-your conf files:
+### Development way
+
+Put this into `~/.emacs`:
+
+```lisp
+(use-package git :pin melpa-stable)
+
+(setq my/ansible-vault-mode-dir    "~/repos/github.com/freehck/ansible-vault-mode")
+(setq my/ansible-vault-mode-repo   "https://github.com/freehck/ansible-vault-mode.git")
+(setq my/ansible-vault-mode-branch "master")
+
+(use-package ansible-vault
+  :pin manual
+  :load-path my/ansible-vault-mode-dir
+  :init
+  (unless (file-accessible-directory-p my/ansible-vault-mode-dir)
+    (make-directory my/ansible-vault-mode-dir))
+  (let ((git-repo (f-full my/ansible-vault-mode-dir)))
+    (unless (git-repo? my/ansible-vault-mode-dir)
+      (git-clone my/ansible-vault-mode-repo git-repo))
+    (unless (git-on-branch? my/ansible-vault-mode-branch)
+      (git-checkout my/ansible-vault-mode-branch)))
+  (add-to-list 'magic-mode-alist (cons #'ansible-vault--is-encrypted-vault-file #'ansible-vault-mode))
+  (load (expand-file-name "ansible-vault.el" my/ansible-vault-mode-dir) nil t)
+  )
+```
+
+### Good old very manual way
+
+Download this repo, store somewhere on disk, and put this into `~/.emacs`:
 
 ```lisp
 (add-to-list 'load-path "/path/to/ansible-vault")
 (require 'ansible-vault)
 ```
 
+
 ## Usage
 
-Once `ansible-vault-mode` in installed you will need to do a little
-configuring before it is useful.
-
-First you will need to set up your ansible-vault password file. By default
-`ansible-vault-mode` assumes the file is located at `~/.vault-pass`. Either
-put your password there or customize the mode to change the location.
-
-You will want to make sure that file has the mode `0600` so other people
-cannot read it.
-
-```bash
-$ ls -al ~/.vault-pass
--rw------- 1 notroot notroot 33 May 18 16:11 /home/notroot/.vault-pass
-```
-
-Once that is set up we can start using `ansible-vault` normally.
-
-The majority of my [ansible-vault][ansible-vault] files are called `encrypted`
-and are [YAML][yaml] files so I have the following snippet to turn on ansible vault
-when needed.
-
-```lisp
-(add-to-list 'auto-mode-alist '("/encrypted$" . yaml-mode))
-
-(add-hook 'yaml-mode-hook
-  (lambda ()
-    (and (string= (file-name-base) "encrypted") (ansible-vault-mode 1))))
-```
-
-The ```*ansible-vault-error*``` buffer will contain any errors from ansible-vault execution.
-
-
-### Automatic enabling based on file contents
-
-To enable `ansible-vault-mode` just based on the buffer contents, not on file extension, you can do:
+The only thing I recommend is to update `magic-mode-alist` in order to activate the mode
+automatically when you open an encrypted file. Anyway, it's already written in the examples above.
 
 ```
-(defun ansible-vault-mode-maybe ()
-  (when (ansible-vault--is-encrypted-vault-file)
-    (ansible-vault-mode 1)))
-
-(add-hook 'yaml-mode-hook 'ansible-vault-mode-maybe)
+(add-to-list 'magic-mode-alist (cons #'ansible-vault--is-encrypted-vault-file #'ansible-vault-mode))
 ```
 
-And if you use the handy `use-package` package replace the last line with:
+When enabled, the mode tries to find `ansible.cfg` file. First it checks `ANSIBLE_CONFIG`
+environment variable. If not set, it performs an upward search starting from your encrypted file
+location. Then it tries `~/.ansible.cfg` and eventually `/etc/ansible/ansible.cfg`.
 
-```
-(use-package ansible-vault
-  :init (add-hook 'yaml-mode-hook 'ansible-vault-mode-maybe))
-```
+So I recommend storing `ansible.cfg` in the root of the repo with your ansible code.
 
-### Per directory ansible-vault password file
+The mode decrypts and encrypts files automatically: decrypts when you enable the mode, encrypts back
+when you save the modifed buffer.
 
-To override ansible-vault password file on a per directory basis:
-first, create a `.dir-locals.el` file in your directory:
+After initialization it tries to activate an appropriate major-mode for by calling `normal-mode` on
+already decrypted buffer.
 
-```lisp
-((yaml-mode
-  (ansible-vault-password-file . "/home/notroot/.ansible-vault/custom_vault_pass")))
-```
-then, if all your vaulted files are prefixed by "vault_", you can load
-ansible-vault-mode in your init file this way:
+In case of errors look into ```*ansible-vault-error*``` buffer.
 
-```lisp
-(add-hook 'hack-local-variables-hook
-          (lambda ()
-            (when (and
-                   (derived-mode-p 'yaml-mode)
-                   (string-prefix-p "vault_" (file-name-base)))
-              (ansible-vault-mode 1))))
-```
+
 
 ### Vault Id configuration
 
-Ansible Vault now supports vault-id for multiple passwords. You can
-persistently track vault ids between sessions by configuring the
-`ansible-vault-vault-id-alist` value with `(vault-id . password-file)` pairs.
+Ansible Vault now supports vault-id for multiple passwords. You can persistently track vault ids
+between sessions by configuring the `ansible-vault-vault-id-alist` value with `(vault-id
+. password-file)` pairs.
 
 ```lisp
 (setq
@@ -106,14 +96,24 @@ persistently track vault ids between sessions by configuring the
    ("foo" . "/etc/foo.secret")))
 ```
 
-This allows properly tagged v1.2 vault files to automatically find and use
-their associated password files.
+This allows properly tagged v1.2 vault files to automatically find and use their associated password
+files.
+
+Nota Bene:
+The current maintainer didn't test this functionality, so you're on your own with it.
+
+### Notes on version 0.6.0
+
+ - Now `ansible-vault-mode` allows to change major mode, and even do it by default right after
+   initialization, so you can work with encrypted files as if they were the ordinary ones. They will
+   be re-encrypted when you save your changes.
+   
+ 
 
 ### Notes on version 0.5.0 and beyond
 
- - `ansible-vault-mode` is now more aggressive in detecting valid password
-   files. If it fails to locate a valid password file it will prompt the user
-   for input.
+ - `ansible-vault-mode` is now more aggressive in detecting valid password files. If it fails to
+   locate a valid password file it will prompt the user for input.
 
  - The minor mode now defines some key bindings under `C-c a`
     - `C-c a d` Decrypts the current file and saves it
@@ -125,31 +125,18 @@ their associated password files.
 
 ## Contributing
 
-Bug reports and pull requests are welcome on [GitHub issues][issues]. This
-project is intended to be a safe, welcoming space for collaboration, and
-contributors are expected to adhere to the Contributor Covenant code of
-conduct.
+Bug reports and pull requests are welcome on [GitHub issues][issues].
+
+Feature requests are welcome too, but I strongly recommend to consider filing a PR additionally.
 
 ## Copyright
 
-Copyright (C) 2016 Zachary Elliott &lt;contact@zell.io&gt;
+Copyright (C) 2016 Zachary Elliott &lt;contact@zell.io&gt;<br/>
+Copyright (C) 2025 Dmitrii Kashin  &lt;freehck@yandex.ru&gt;
 
-```
-This program is free software you can redistribute it and/or modify it under
-the terms of the GNU General Public License as published by the Free Software
-Foundation either version 3 of the License, or (at your option) any later
-version.
-
-This program is distributed in the hope that it will be useful, but WITHOUT
-ANY WARRANTY without even the implied warranty of MERCHANTABILITY or FITNESS
-FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more
-details.
-
-You should have received a copy of the GNU General Public License along with
-this software.  If not, write to the Free Software Foundation, Inc., 51
-Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-```
+This program is licensed under [GPLv3][license].
 
 [ansible-vault]: http://docs.ansible.com/ansible/playbooks_vault.html
 [yaml]: http://yaml.org/
-[issues]: https://github.com/zellio/ansible-vault-mode
+[issues]: https://github.com/freehck/ansible-vault-mode
+[license]: https://raw.githubusercontent.com/freehck/ansible-vault-mode/refs/heads/master/LICENSE
