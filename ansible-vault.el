@@ -638,6 +638,12 @@ Ensures deletion of ansible-vault generated password files."
 
     (ansible-vault--clear-local-variables)))
 
+;; ──────────────────────────────────────────────────────────────
+;; Integrations
+;; ──────────────────────────────────────────────────────────────
+
+(add-to-list 'magic-mode-alist
+             (cons #'ansible-vault--is-encrypted-vault-file #'ansible-vault-mode))
 
 ;; ──────────────────────────────────────────────────────────────
 ;; Obsolete aliases (explicit!)
