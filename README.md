@@ -129,12 +129,15 @@ Bug reports and pull requests are welcome on [GitHub issues][issues].
 
 Feature requests are welcome too, but I strongly recommend to consider filing a PR additionally.
 
-## Copyright
-
-Copyright (C) 2016 Zachary Elliott &lt;contact@zell.io&gt;<br/>
-Copyright (C) 2025 Dmitrii Kashin  &lt;freehck@yandex.ru&gt;
+## License
 
 This program is licensed under [GPLv3][license].
+
+## Authors and Contributors
+
+Zachary Elliott &lt;contact@zell.io&gt;<br/>
+Dmitrii Kashin  &lt;freehck@yandex.ru&gt;<br/>
+Peter Bray      [@illumino](https://github.com/illumino)<br/>
 
 [ansible-vault]: http://docs.ansible.com/ansible/playbooks_vault.html
 [yaml]: http://yaml.org/
